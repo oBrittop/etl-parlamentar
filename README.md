@@ -8,3 +8,5 @@ O projeto foi estruturado utilizando uma Arquitetura em 3 Camadas para garantir 
    - Implementação de um Agente IA utilizando a **API do Google Gemini**. O agente atua com a técnica de *Text-to-SQL*, traduzindo perguntas em linguagem natural feitas pelo usuário em consultas SQL otimizadas para interagir com o banco de dados de forma segura.
 3. **Camada de Apresentação (Frontend):**
    - Interface web interativa desenvolvida com **Streamlit** e visualização de dados suportada pela biblioteca **Plotly**, permitindo filtros dinâmicos e chat em tempo real com o Agente de IA.
+
+libs++ etl-parlamentar> pip install pandas requests sqlalchemy mysql-connector-python streamlit plotly python-dotenv
