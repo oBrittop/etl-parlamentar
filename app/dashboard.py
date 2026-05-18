@@ -3,11 +3,14 @@ import streamlit as st
 import os
 import google.generativeai as genai
 from dotenv import load_dotenv
+from pandasai import Agent
+from pandasai.llm import GoogleGemini
+
 load_dotenv()
 CHAVE_IA = os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=CHAVE_IA)
-modelo_ia = genai.GenerativeModel("gemini-2.5-flash")
-
+llm_gemini = GoogleGemini(api_key=CHAVE_IA)
+llm_gemini.google_gemini = genai.GenerativeModel("gemini-2.5-flash")
 DATA_DIR = "dados_limpos/receitas_deputados_federais.csv"
 caminho = os.path.join(os.path.abspath(DATA_DIR))
 if not os.path.exists(caminho):
@@ -65,35 +68,92 @@ maiores_doadores["VR_RECEITA"] = maiores_doadores["VR_RECEITA"].apply(lambda x: 
 # st.dataframe(maiores_doadores.head(15))
 
 st.dataframe(maiores_doadores, width="stretch")
-
-
-
-# -------------CHAT COM GEMINI FLASH AI-------------
+# ----------------------------------------------------
+# NOVA SEÇÃO: O AGENTE DE DADOS AUTÔNOMO
 st.divider()
-st.subheader("Analista de Dados IA")
-st.write("Pergunte algo sobre os Top 10 doadores deste estado e a IA vai analisar para você.")
-pergunta = st.text_input("O que voce quer saber?")
+st.subheader("Cientista de Dados IA (Agente)")
+st.write("Pergunte QUALQUER COISA sobre as doações deste estado. Peça cálculos, cruzamentos ou até gráficos!")
 
+pergunta = st.text_input("O que você quer descobrir?")
 
-if st.button("Perguntar a IA"):
+if st.button("Executar Análise"):
     if pergunta:
-        with st.spinner("O Gemini esta analisando os dados..."):
+        with st.spinner("O Agente está escrevendo e executando códigos para te responder..."):
             
-            tabela_em_texto = maiores_doadores.to_string()
-            
-            prompt_mestre = f"""
-            Você é um assistente de dados focado em analisar doações políticas.
-            O usuário está analisando atualmente os dados do estado: {estado_escolhido}.
-            
-            Aqui estão os dados dos maiores doadores desse estado específico:
-            {tabela_em_texto}
-            
-            Com base EXCLUSIVAMENTE nos dados acima, responda à seguinte pergunta do usuário de forma clara, direta e educada.
-            Se a pergunta for sobre o estado atual ({estado_escolhido}), use os dados para responder.
-            
-            Pergunta do usuário: {pergunta}
+            # 2. O Pulo do Gato: Desligando o cache para ele sempre ler o código fresco!
+            agente = Agent(df_filtrado, config={
+                "llm": llm_gemini, 
+                "save_charts": True,
+                "enable_cache": False  # <--- ISSO MATA O BUG
+            })
+            ordem_oculta = """
+            (Atenção Agente: Retorne APENAS o código Python puro. 
+            Não adicione nenhum texto explicativo, nem antes nem depois do código. 
+            Se a pergunta pedir um gráfico, gere o gráfico usando matplotlib e salve-o.)
             """
-            resposta = modelo_ia.generate_content(prompt_mestre)
-            st.info(resposta.text)
+            pergunta_promt_injection = pergunta + ordem_oculta
+            resposta = agente.chat(pergunta_promt_injection)
+            
+            if isinstance(resposta, str) and resposta.endswith(".png"):
+                st.image(resposta)
+            else:
+                st.info(resposta)
+                
     else:
-        print("Por favor, digite uma pergunta antes de clicar no botão.")
+        st.warning("Digite algo para o Agente analisar.")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# # -------------CHAT COM GEMINI FLASH AI-------------
+# st.divider()
+# st.subheader("Analista de Dados IA")
+# st.write("Pergunte algo sobre os Top 10 doadores deste estado e a IA vai analisar para você.")
+# pergunta = st.text_input("O que voce quer saber?")
+
+
+# if st.button("Perguntar a IA"):
+#     if pergunta:
+#         with st.spinner("O Gemini esta analisando os dados..."):
+            
+#             tabela_em_texto = maiores_doadores.to_string()
+            
+#             prompt_mestre = f"""
+#             Você é um assistente de dados focado em analisar doações políticas.
+#             O usuário está analisando atualmente os dados do estado: {estado_escolhido}.
+            
+#             Aqui estão os dados dos maiores doadores desse estado específico:
+#             {tabela_em_texto}
+            
+#             Com base EXCLUSIVAMENTE nos dados acima, responda à seguinte pergunta do usuário de forma clara, direta e educada.
+#             Se a pergunta for sobre o estado atual ({estado_escolhido}), use os dados para responder.
+            
+#             Pergunta do usuário: {pergunta}
+#             """
+#             resposta = modelo_ia.generate_content(prompt_mestre)
+#             st.info(resposta.text)
+#     else:
+#         print("Por favor, digite uma pergunta antes de clicar no botão.")
