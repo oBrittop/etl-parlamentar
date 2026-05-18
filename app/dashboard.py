@@ -1,6 +1,12 @@
 import pandas as pd
 import streamlit as st
 import os
+import google.generativeai as genai
+from dotenv import load_dotenv
+load_dotenv()
+CHAVE_IA = os.getenv("GEMINI_API_KEY")
+genai.configure(api_key=CHAVE_IA)
+modelo_ia = genai.GenerativeModel("gemini-2.5-flash")
 
 DATA_DIR = "dados_limpos/receitas_deputados_federais.csv"
 caminho = os.path.join(os.path.abspath(DATA_DIR))
@@ -26,14 +32,14 @@ def formatar_milhoes(valor):
 
 opcoes_estados = df["SG_UF"].unique()
 opcoes_estados = sorted(opcoes_estados)
-estado_escolido = st.selectbox("Escolha o estado que vc quer usar", opcoes_estados)
-df_filtrado = df[df["SG_UF"] == estado_escolido]
+estado_escolhido = st.selectbox("Escolha o estado que vc quer usar", opcoes_estados)
+df_filtrado = df[df["SG_UF"] == estado_escolhido]
 
 
 maiores_doadores = df_filtrado.groupby("NM_DOADOR")["VR_RECEITA"].sum().reset_index()
 maiores_doadores = maiores_doadores.sort_values(by= "VR_RECEITA", ascending=False).head(10)
 
-st.subheader(f"Top 10 DOadores em {estado_escolido}")
+st.subheader(f"Top 10 DOadores em {estado_escolhido}")
 
 total_arrecadado = df_filtrado["VR_RECEITA"].sum()
 total_doadores = df_filtrado["NM_DOADOR"].nunique()
@@ -59,3 +65,35 @@ maiores_doadores["VR_RECEITA"] = maiores_doadores["VR_RECEITA"].apply(lambda x: 
 # st.dataframe(maiores_doadores.head(15))
 
 st.dataframe(maiores_doadores, width="stretch")
+
+
+
+# -------------CHAT COM GEMINI FLASH AI-------------
+st.divider()
+st.subheader("Analista de Dados IA")
+st.write("Pergunte algo sobre os Top 10 doadores deste estado e a IA vai analisar para você.")
+pergunta = st.text_input("O que voce quer saber?")
+
+
+if st.button("Perguntar a IA"):
+    if pergunta:
+        with st.spinner("O Gemini esta analisando os dados..."):
+            
+            tabela_em_texto = maiores_doadores.to_string()
+            
+            prompt_mestre = f"""
+            Você é um assistente de dados focado em analisar doações políticas.
+            O usuário está analisando atualmente os dados do estado: {estado_escolhido}.
+            
+            Aqui estão os dados dos maiores doadores desse estado específico:
+            {tabela_em_texto}
+            
+            Com base EXCLUSIVAMENTE nos dados acima, responda à seguinte pergunta do usuário de forma clara, direta e educada.
+            Se a pergunta for sobre o estado atual ({estado_escolhido}), use os dados para responder.
+            
+            Pergunta do usuário: {pergunta}
+            """
+            resposta = modelo_ia.generate_content(prompt_mestre)
+            st.info(resposta.text)
+    else:
+        print("Por favor, digite uma pergunta antes de clicar no botão.")
