@@ -1,5 +1,5 @@
 # etl-parlamentar
-ETL feito em arquitetura 3 camadas - Python-MySQL-gemini-1.5-flash
+ETL feito em arquitetura 3 camadas - Python-MySQL-gemini-2.5-flash
 ## Arquitetura do Sistema
 O projeto foi estruturado utilizando uma Arquitetura em 3 Camadas para garantir escalabilidade e separação de responsabilidades (Clean Code):
 
