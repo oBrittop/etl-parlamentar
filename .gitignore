@@ -218,3 +218,7 @@ __marimo__/
 .streamlit/secrets.toml
 dados_brutos/
 .env
+
+
+#Dados
+data/
