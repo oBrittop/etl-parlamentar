@@ -45,6 +45,12 @@ def create_expense_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def filter_parliamentarians(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    if "ideCadastro" in df.columns:
+        df = df[df["ideCadastro"]>0]
+    return df
+
 def transform_despesas(df: pd.DataFrame) -> pd.DataFrame:
     df = remove_duplicates(df)
     df = fill_missing_values(df)
@@ -57,7 +63,8 @@ def transform_despesas(df: pd.DataFrame) -> pd.DataFrame:
     ]
     for column in numeric_columns:
         df = convert_numeric_column(df, column)
-        
+    
+    df = filter_parliamentarians(df)
     df = convert_date_column(df, "datEmissao")
     df = create_expense_features(df)
     
