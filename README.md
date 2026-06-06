@@ -1,22 +1,50 @@
-# etl-parlamentar
-ETL feito em arquitetura 3 camadas - Python-MySQL-gemini-2.5-flash
-## Arquitetura do Sistema
-O projeto foi estruturado utilizando uma Arquitetura em 3 Camadas para garantir escalabilidade e separação de responsabilidades (Clean Code):
+# ETL Parlamentar - Observatório da Cota Parlamentar
 
-1. **Camada de Dados (Infraestrutura/ETL):** - Scripts automatizados em **Python** (`requests`, `pandas`) que consomem a API de Dados Abertos da Câmara dos Deputados, limpam os JSONs e realizam a carga (Load) em um banco de dados relacional **MySQL**.
-2. **Camada de Serviço (Inteligência Artificial):**
-   - Implementação de um Agente IA utilizando a **API do Google Gemini**. O agente atua com a técnica de *Text-to-SQL*, traduzindo perguntas em linguagem natural feitas pelo usuário em consultas SQL otimizadas para interagir com o banco de dados de forma segura.
-3. **Camada de Apresentação (Frontend):**
-   - Interface web interativa desenvolvida com **Streamlit** e visualização de dados suportada pela biblioteca **Plotly**, permitindo filtros dinâmicos e chat em tempo real com o Agente de IA.
+Projeto de Análise de Dados com Python voltado à transparência pública.  
+A aplicação realiza um processo de ETL sobre dados da **Cota para o Exercício da Atividade Parlamentar (CEAP)** da Câmara dos Deputados, com foco na análise dos gastos parlamentares em 2025.
 
-libs++ etl-parlamentar> pip install pandas requests sqlalchemy mysql-connector-python streamlit plotly python-dotenv
+## Objetivo
 
-```bash
-# 1. Instalação das bibliotecas base e da IA do Google
-pip install pandas requests sqlalchemy mysql-connector-python streamlit plotly python-dotenv google-generativeai pyyaml
+O objetivo do projeto é responder à seguinte pergunta:
 
-# 2. Instalação isolada do PandasAI (para não quebrar o Pandas moderno)
-pip install pandasai --no-deps
+> Como os deputados federais utilizaram os recursos da Cota Parlamentar em 2025?
 
-# 3. Instalação das dependências secundárias exigidas pelo PandasAI para desenhar os gráficos
-pip install "matplotlib>=3.7.1,<4.0.0" "sqlglot[rs]>=25.0.3,<26.0.0" "faker>=19.12.0,<20.0.0" "openai<2" "pillow>=10.1.0,<11.0.0"
+A partir dos dados abertos da Câmara dos Deputados, o projeto busca identificar padrões de gasto por parlamentar, partido, unidade federativa, categoria de despesa, fornecedor e mês.
+
+## Fonte dos Dados
+
+Os dados são obtidos a partir dos arquivos públicos da Câmara dos Deputados:
+
+- Base CEAP 2025: `https://www.camara.leg.br/cotas/Ano-2025.csv.zip`
+- Documentação dos campos: https://dadosabertos.camara.leg.br/howtouse/2023-12-26-dados-ceap.html
+
+A CEAP é uma verba pública usada para custear despesas relacionadas ao exercício do mandato parlamentar, como passagens aéreas, combustível, manutenção de escritório, divulgação da atividade parlamentar, telefonia, entre outras.
+
+## Tecnologias Utilizadas
+
+- Python
+- Pandas
+- NumPy
+- Requests
+- Matplotlib
+- Streamlit
+
+## Estrutura do Projeto
+
+```text
+etl-parlamentar/
+├── app/
+│   └── dashboard.py
+├── data/
+│   ├── raw/
+│   └── processed/
+├── reports/
+├── src/
+│   ├── __init__.py
+│   ├── extract.py
+│   ├── transform.py
+│   ├── load.py
+│   └── metrics.py
+├── main.py
+├── requirements.txt
+└── README.md
