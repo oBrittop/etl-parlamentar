@@ -74,13 +74,7 @@ def format_short_currency(value: float) -> str:
     return format_currency(value)
 
 
-def apply_filters(
-    df: pd.DataFrame,
-    parties: list[str],
-    states: list[str],
-    categories: list[str],
-    months: list[int],
-) -> pd.DataFrame:
+def apply_filters(df: pd.DataFrame, parties: list[str], states: list[str], categories: list[str], months: list[int]) -> pd.DataFrame:
     filtered_df = df.copy()
 
     if parties:
@@ -129,7 +123,7 @@ def horizontal_bar_chart(
             fontsize=9,
         )
 
-    fig.tight_layout()
+    fig.tight_layout()  
     return fig
 
 
@@ -265,6 +259,7 @@ st.divider()
 tab_overview, tab_rankings, tab_suppliers, tab_data = st.tabs(
     ["Visao geral", "Deputados e partidos", "Fornecedores", "Dados"]
 )
+
 
 with tab_overview:
     left, right = st.columns([1.2, 1])
