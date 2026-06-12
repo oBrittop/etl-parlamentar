@@ -1,159 +1,375 @@
+
+from pathlib import Path
+import sys
+
+import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
-import os
-import google.generativeai as genai
-from dotenv import load_dotenv
-from pandasai import Agent
-from pandasai.llm import GoogleGemini
 
-load_dotenv()
-CHAVE_IA = os.getenv("GEMINI_API_KEY")
-genai.configure(api_key=CHAVE_IA)
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT))
 
-llm_gemini = GoogleGemini(api_key=CHAVE_IA)
-llm_gemini.google_gemini = genai.GenerativeModel("gemini-2.5-flash")
+from src.metrics import (
+    deputados_unique,
+    expense_partido,
+    expense_uf,
+    ranking_expense_deputado,
+    ranking_fornecedores,
+    total_expenses,
+    values_category,
+    values_data,
+)
 
-DATA_DIR = "dados_limpos/receitas_deputados_federais.csv"
-caminho = os.path.join(os.path.abspath(DATA_DIR))
+DATA_PATH = PROJECT_ROOT / "data" / "processed" / "despesas_ceap_2025.csv"
+PAGE_TITLE = "Observatorio da Cota Parlamentar"
 
-if not os.path.exists(caminho):
-    st.error("ERRO: arquivo de dados não encontrado no caminho especificado.")
+MONTH_NAMES = {
+    1: "Jan",
+    2: "Fev",
+    3: "Mar",
+    4: "Abr",
+    5: "Mai",
+    6: "Jun",
+    7: "Jul",
+    8: "Ago",
+    9: "Set",
+    10: "Out",
+    11: "Nov",
+    12: "Dez",
+}
 
-st.write("# DASHBOARD PARLAMENTAR")
 
-df_bruto = pd.read_csv(caminho)
+st.set_page_config(
+    page_title=PAGE_TITLE,
+    page_icon="??",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-# remoçao duplicatas e tratamento de valores nulos 
-df = df_bruto.drop_duplicates()
-df["VR_RECEITA"] = pd.to_numeric(df["VR_RECEITA"], errors="coerce")
-df["VR_RECEITA"] = df["VR_RECEITA"].fillna(0)
-df["NM_DOADOR"] = df["NM_DOADOR"].fillna("Doador Não Identificado")
 
-# =====================================================================
-#CONFIGURAÇÃO DOS FILTROS E MÉTRICAS
-def formatar_milhoes(valor):
-    if valor >= 1_000_000_000:
-        return f"R$ {valor/1_000_000_000:.2f} Bi"
-    elif valor >= 1_000_000:
-        return f"R$ {valor/1_000_000:.2f} Mi"
-    elif valor >= 1_000:
-        return f"R$ {valor/1_000:.2f} Mil"
-    else:
-        return f"R$ {valor:.2f}"
+@st.cache_data
+def load_data(file_path: Path) -> pd.DataFrame:
+    df = pd.read_csv(file_path)
 
-opcoes_estados = sorted(df["SG_UF"].dropna().unique())
-estado_escolhido = st.selectbox("Escolha o estado que você quer usar", opcoes_estados)
+    numeric_columns = ["vlrLiquido", "numMes", "numAno", "ideCadastro"]
+    for column in numeric_columns:
+        if column in df.columns:
+            df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0)
 
-# Filtragem dos dados
-df_filtrado = df[df["SG_UF"] == estado_escolhido]
+    return df
 
-# Processamento do Top 10 Doadores
-maiores_doadores = df_filtrado.groupby("NM_DOADOR")["VR_RECEITA"].sum().reset_index()
-maiores_doadores = maiores_doadores.sort_values(by="VR_RECEITA", ascending=False).head(10)
 
-st.subheader(f"Top 10 Doadores em {estado_escolhido}")
+def format_currency(value: float) -> str:
+    return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# Cálculos para os KPIs
-total_arrecadado = df_filtrado["VR_RECEITA"].sum()
-total_doadores = df_filtrado["NM_DOADOR"].nunique()
-maior_doacao = df_filtrado["VR_RECEITA"].max()
 
-total_arrecadado_fmt = formatar_milhoes(total_arrecadado)
-maior_doacao_fmt = formatar_milhoes(maior_doacao)
+def format_short_currency(value: float) -> str:
+    if value >= 1_000_000_000:
+        return f"R$ {value / 1_000_000_000:.2f} bi".replace(".", ",")
+    if value >= 1_000_000:
+        return f"R$ {value / 1_000_000:.2f} mi".replace(".", ",")
+    if value >= 1_000:
+        return f"R$ {value / 1_000:.2f} mil".replace(".", ",")
+    return format_currency(value)
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric(label="Total Arrecadado", value=total_arrecadado_fmt)
-with col2:
-    st.metric(label="Total de Doadores", value=total_doadores)
-with col3:
-    st.metric(label="Maior Doação Única", value=maior_doacao_fmt)
+
+def apply_filters(df: pd.DataFrame, parties: list[str], states: list[str], categories: list[str], months: list[int]) -> pd.DataFrame:
+    filtered_df = df.copy()
+
+    if parties:
+        filtered_df = filtered_df[filtered_df["sgPartido"].isin(parties)]
+    if states:
+        filtered_df = filtered_df[filtered_df["sgUF"].isin(states)]
+    if categories:
+        filtered_df = filtered_df[filtered_df["txtDescricao"].isin(categories)]
+    if months:
+        filtered_df = filtered_df[filtered_df["numMes"].isin(months)]
+
+    return filtered_df
+
+
+def style_axes(ax, title: str, xlabel: str, ylabel: str) -> None:
+    ax.set_title(title, fontsize=13, fontweight="bold", pad=12)
+    ax.set_xlabel(xlabel, fontsize=10)
+    ax.set_ylabel(ylabel, fontsize=10)
+    ax.grid(axis="x", linestyle="--", alpha=0.25)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+
+def horizontal_bar_chart(
+    df: pd.DataFrame,
+    label_column: str,
+    value_column: str,
+    title: str,
+    xlabel: str,
+    color: str,
+):
+    plot_df = df.copy().sort_values(value_column, ascending=True)
+    fig_height = max(4, len(plot_df) * 0.45)
+    fig, ax = plt.subplots(figsize=(11, fig_height))
+
+    bars = ax.barh(plot_df[label_column].astype(str), plot_df[value_column], color=color)
+    style_axes(ax, title, xlabel, "")
+
+    for bar in bars:
+        value = bar.get_width()
+        ax.text(
+            value,
+            bar.get_y() + bar.get_height() / 2,
+            f" {format_short_currency(value)}",
+            va="center",
+            fontsize=9,
+        )
+
+    fig.tight_layout()  
+    return fig
+
+
+def line_chart(df: pd.DataFrame):
+    plot_df = df.copy()
+    plot_df["mes_nome"] = plot_df["numMes"].map(MONTH_NAMES)
+
+    fig, ax = plt.subplots(figsize=(11, 4.5))
+    ax.plot(
+        plot_df["mes_nome"],
+        plot_df["vlrLiquido"],
+        marker="o",
+        linewidth=2.5,
+        color="#2563eb",
+        label="Gasto mensal",
+    )
+    ax.fill_between(plot_df["mes_nome"], plot_df["vlrLiquido"], alpha=0.12, color="#2563eb")
+
+    ax.set_title("Evolucao mensal dos gastos", fontsize=13, fontweight="bold", pad=12)
+    ax.set_xlabel("Mes", fontsize=10)
+    ax.set_ylabel("Valor liquido", fontsize=10)
+    ax.grid(axis="y", linestyle="--", alpha=0.25)
+    ax.legend(loc="upper left")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    fig.tight_layout()
+    return fig
+
+
+def show_dataframe(df: pd.DataFrame, value_column: str = "vlrLiquido") -> None:
+    display_df = df.copy()
+    if value_column in display_df.columns:
+        display_df[value_column] = display_df[value_column].apply(format_currency)
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+
+st.markdown(
+    """
+    <style>
+        .main .block-container {
+            padding-top: 1.6rem;
+            padding-bottom: 2rem;
+        }
+        .hero {
+            padding: 1.2rem 0 0.4rem 0;
+            border-bottom: 1px solid rgba(120, 120, 120, 0.25);
+            margin-bottom: 1.2rem;
+        }
+        .hero h1 {
+            font-size: 2.1rem;
+            margin-bottom: 0.2rem;
+            letter-spacing: 0;
+        }
+        .hero p {
+            color: #64748b;
+            font-size: 1rem;
+            margin-top: 0;
+        }
+        div[data-testid="stMetric"] {
+            border: 1px solid rgba(120, 120, 120, 0.22);
+            border-radius: 8px;
+            padding: 0.8rem 1rem;
+            background: rgba(248, 250, 252, 0.7);
+        }
+        section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {
+            margin-top: 0.5rem;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+    <div class="hero">
+        <h1>Observatorio da Cota Parlamentar</h1>
+        <p>Analise interativa das despesas CEAP 2025 com filtros, rankings e visualizacoes em Matplotlib.</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+if not DATA_PATH.exists():
+    st.error("Base tratada nao encontrada. Execute primeiro: python main.py")
+    st.stop()
+
+try:
+    df = load_data(DATA_PATH)
+except Exception as error:
+    st.error(f"Erro ao carregar a base tratada: {error}")
+    st.stop()
+
+with st.sidebar:
+    st.header("Filtros")
+    st.caption("Use os filtros para comparar partidos, estados, categorias e meses.")
+
+    top_n = st.slider("Quantidade nos rankings", min_value=5, max_value=20, value=10, step=1)
+
+    party_options = sorted(df["sgPartido"].dropna().unique().tolist())
+    state_options = sorted(df["sgUF"].dropna().unique().tolist())
+    category_options = sorted(df["txtDescricao"].dropna().unique().tolist())
+    month_options = sorted(df["numMes"].dropna().astype(int).unique().tolist())
+
+    selected_parties = st.multiselect("Partidos", party_options)
+    selected_states = st.multiselect("UFs", state_options)
+    selected_categories = st.multiselect("Categorias de despesa", category_options)
+    selected_months = st.multiselect(
+        "Meses",
+        month_options,
+        format_func=lambda month: MONTH_NAMES.get(int(month), str(month)),
+    )
+
+filtered_df = apply_filters(df, selected_parties, selected_states, selected_categories, selected_months)
+
+if filtered_df.empty:
+    st.warning("Nenhum registro encontrado para os filtros selecionados.")
+    st.stop()
+
+expense_total = total_expenses(filtered_df)
+parliamentarians_total = deputados_unique(filtered_df)
+documents_total = len(filtered_df)
+average_expense = filtered_df["vlrLiquido"].mean()
+
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Gasto total", format_short_currency(expense_total))
+col2.metric("Parlamentares", f"{parliamentarians_total:,}".replace(",", "."))
+col3.metric("Registros", f"{documents_total:,}".replace(",", "."))
+col4.metric("Media por registro", format_short_currency(average_expense))
 
 st.divider()
 
-# Gráfico Nativo e Tabela de Dados
-st.bar_chart(maiores_doadores, x="NM_DOADOR", y="VR_RECEITA")
+tab_overview, tab_rankings, tab_suppliers, tab_data = st.tabs(
+    ["Visao geral", "Deputados e partidos", "Fornecedores", "Dados"]
+)
 
-# Criamos uma cópia para exibição formatada sem quebrar os dados numéricos originais
-maiores_doadores_exibicao = maiores_doadores.copy()
-maiores_doadores_exibicao["VR_RECEITA"] = maiores_doadores_exibicao["VR_RECEITA"].apply(lambda x: f"R$ {x:,.2f}")
-st.dataframe(maiores_doadores_exibicao, width="stretch")
 
-# ----------------------------------------------------
-# NOVA SEÇÃO: O AGENTE DE DADOS AUTÔNOMO
-st.divider()
-st.subheader("Cientista de Dados IA (Motor Customizado)")
-st.write("Peça à IA para filtrar ou cruzar dados. Ela criará e executará o código em tempo real!")
+with tab_overview:
+    left, right = st.columns([1.2, 1])
 
-pergunta = st.text_input("O que você quer descobrir? (Ex: Deputados com maior número de doadores únicos)")
+    with left:
+        monthly_df = values_data(filtered_df)
+        st.pyplot(line_chart(monthly_df))
 
-if st.button("Executar Análise"):
-    if pergunta:
-        with st.spinner("A IA está escrevendo e rodando o código Pandas nos bastidores..."):
-            
-            # 1. O Prompt Mestre: Ensinamos o Gemini a ser um programador Pandas
-            prompt_mestre = f"""
-            Você é um Engenheiro de Dados Sênior. Eu tenho um DataFrame no Python chamado `df_filtrado`.
-            As colunas disponíveis nessa tabela são: {list(df_filtrado.columns)}
-            
-            O usuário fez a seguinte requisição: "{pergunta}"
-            
-            Escreva o código em Python (usando a biblioteca pandas) para resolver isso.
-            Obrigatoriamente, salve a tabela final numa variável chamada `resultado`.
-            
-            REGRA ABSOLUTA: Retorne SOMENTE O CÓDIGO PURO. Sem marcações Markdown, sem crases (```), sem a palavra python, sem explicações.
-            """
-            
-            # 2. O Gemini gera o código puro (usamos a variável que você já configurou lá em cima)
-            # Como instanciamos o GenerativeModel na variável llm_gemini.google_gemini, usamos ela:
-            resposta = llm_gemini.google_gemini.generate_content(prompt_mestre)
-            
-            # Limpamos qualquer sujeira de formatação que a IA possa tentar colocar
-            codigo_gerado = resposta.text.replace("```python", "").replace("```", "").strip()
-            
-            # 3. O Ambiente Virtual: Damos acesso seguro apenas à tabela e ao Pandas
-            ambiente = {"df_filtrado": df_filtrado, "pd": pd}
-            
-            try:
-                # 4. A Magia Acontece: Executamos o código que a IA acabou de escrever!
-                exec(codigo_gerado, ambiente)
-                
-                # Resgatamos a variável 'resultado' que mandamos a IA criar
-                resultado = ambiente.get("resultado")
-                
-                if isinstance(resultado, pd.DataFrame):
-                    st.success("Análise concluída com sucesso!")
-                    st.dataframe(resultado, width="stretch")
-                    
-                    # === SEU CÓDIGO MATPLOTLIB INTACTO ===
-                    st.write(" Gráfico Gerado Automaticamente:")
-                    import matplotlib.pyplot as plt
-                    
-                    fig, ax = plt.subplots(figsize=(10, 5))
-                    
-                    # Descobre sozinho os eixos X e Y baseados no dataframe gerado
-                    coluna_x = resultado.columns[0]
-                    coluna_y = resultado.columns[1] if len(resultado.columns) > 1 else resultado.columns[0]
-                    df_plot = resultado.head(10)
-                    
-                    ax.bar(df_plot[coluna_x].astype(str), df_plot[coluna_y], color='#4C72B0', edgecolor='black')
-                    
-                    plt.title(f"Análise: {coluna_x} vs {coluna_y}", fontsize=12)
-                    plt.xlabel(coluna_x, fontsize=10)
-                    plt.ylabel(coluna_y, fontsize=10)
-                    plt.xticks(rotation=45, ha='right')
-                    plt.tight_layout()
-                    
-                    st.pyplot(fig)
-                else:
-                    st.info(f"Resultado: {resultado}")
-                    
-            except Exception as e:
-                # Se a IA errar a sintaxe do Pandas, nós mostramos o erro e o código para o professor ver o nível do projeto!
-                st.error(f"Houve um erro na execução lógica do código. O Agente se confundiu.")
-                with st.expander("Ver o código gerado pela IA (Debug)"):
-                    st.code(codigo_gerado)
-                    st.write(f"Erro original: {e}")
-                    
-    else:
-        st.warning("Por favor, digite algo para o Agente analisar.")
+    with right:
+        category_df = values_category(filtered_df).head(top_n)
+        fig = horizontal_bar_chart(
+            category_df,
+            "txtDescricao",
+            "vlrLiquido",
+            "Categorias com maior gasto",
+            "Valor liquido",
+            "#0f766e",
+        )
+        st.pyplot(fig)
+
+    st.subheader("Gastos por categoria")
+    show_dataframe(category_df)
+
+with tab_rankings:
+    left, right = st.columns(2)
+
+    with left:
+        ranking_df = ranking_expense_deputado(filtered_df, limit=top_n)
+        ranking_df["deputado_label"] = (
+            ranking_df["txNomeParlamentar"]
+            + " ("
+            + ranking_df["sgPartido"]
+            + "-"
+            + ranking_df["sgUF"]
+            + ")"
+        )
+        fig = horizontal_bar_chart(
+            ranking_df,
+            "deputado_label",
+            "vlrLiquido",
+            "Deputados com maior gasto",
+            "Valor liquido",
+            "#1d4ed8",
+        )
+        st.pyplot(fig)
+        show_dataframe(ranking_df.drop(columns="deputado_label"))
+
+    with right:
+        party_df = expense_partido(filtered_df).head(top_n)
+        fig = horizontal_bar_chart(
+            party_df,
+            "sgPartido",
+            "vlrLiquido",
+            "Partidos com maior gasto",
+            "Valor liquido",
+            "#7c3aed",
+        )
+        st.pyplot(fig)
+        show_dataframe(party_df)
+
+    st.subheader("Gastos por unidade federativa")
+    state_df = expense_uf(filtered_df).head(top_n)
+    fig = horizontal_bar_chart(
+        state_df,
+        "sgUF",
+        "vlrLiquido",
+        "UFs com maior gasto",
+        "Valor liquido",
+        "#b45309",
+    )
+    st.pyplot(fig)
+    show_dataframe(state_df)
+
+with tab_suppliers:
+    supplier_df = ranking_fornecedores(filtered_df, limit=top_n)
+    fig = horizontal_bar_chart(
+        supplier_df,
+        "txtFornecedor",
+        "vlrLiquido",
+        "Fornecedores que mais receberam",
+        "Valor liquido",
+        "#be123c",
+    )
+    st.pyplot(fig)
+
+    st.subheader("Ranking de fornecedores")
+    show_dataframe(supplier_df)
+
+with tab_data:
+    st.subheader("Base filtrada")
+    st.caption("A tabela abaixo mostra os registros depois da aplicacao dos filtros laterais.")
+
+    selected_columns = [
+        "txNomeParlamentar",
+        "sgPartido",
+        "sgUF",
+        "txtDescricao",
+        "txtFornecedor",
+        "vlrLiquido",
+        "numMes",
+        "numAno",
+        "tem_documento",
+    ]
+    available_columns = [column for column in selected_columns if column in filtered_df.columns]
+    show_dataframe(filtered_df[available_columns].head(500))
+
+    csv = filtered_df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "Baixar base filtrada",
+        data=csv,
+        file_name="despesas_ceap_2025_filtradas.csv",
+        mime="text/csv",
+    )
