@@ -221,7 +221,7 @@ with st.sidebar:
     st.header("Filtros")
     st.caption("Use os filtros para comparar partidos, estados, categorias e meses.")
 
-    top_n = st.slider("Quantidade nos rankings", min_value=5, max_value=20, value=10, step=1)
+    top_n = st.slider("Quantidade nos rankings", min_value=5, max_value=27, value=10, step=1)
 
     party_options = sorted(df["sgPartido"].dropna().unique().tolist())
     state_options = sorted(df["sgUF"].dropna().unique().tolist())
