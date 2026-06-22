@@ -19,6 +19,8 @@ from src.metrics import (
     total_expenses,
     values_category,
     values_data,
+    calculate_weekend_expenses, 
+    calculate_benford_law
 )
 
 DATA_PATH = PROJECT_ROOT / "data" / "processed" / "despesas_ceap_2025.csv"
@@ -153,12 +155,18 @@ def line_chart(df: pd.DataFrame):
     fig.tight_layout()
     return fig
 
-
 def show_dataframe(df: pd.DataFrame, value_column: str = "vlrLiquido") -> None:
-    display_df = df.copy()
-    if value_column in display_df.columns:
-        display_df[value_column] = display_df[value_column].apply(format_currency)
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            value_column: st.column_config.NumberColumn(
+                "Valor Líquido",
+                format="R$ %.2f"
+            )
+        }
+    )
 
 
 st.markdown(
@@ -256,8 +264,8 @@ col4.metric("Media por registro", format_short_currency(average_expense))
 
 st.divider()
 
-tab_overview, tab_rankings, tab_suppliers, tab_data = st.tabs(
-    ["Visao geral", "Deputados e partidos", "Fornecedores", "Dados"]
+tab_overview, tab_rankings, tab_suppliers,tab_alerts, tab_data = st.tabs(
+    ["Visao geral", "Deputados e partidos", "Fornecedores","Alertas", "Dados"]
 )
 
 
@@ -278,7 +286,7 @@ with tab_overview:
             "Valor liquido",
             "#0f766e",
         )
-        st.pyplot(fig)
+        st.pyplot(fig, clear_figure=True)
 
     st.subheader("Gastos por categoria")
     show_dataframe(category_df)
@@ -304,7 +312,7 @@ with tab_rankings:
             "Valor liquido",
             "#1d4ed8",
         )
-        st.pyplot(fig)
+        st.pyplot(fig, clear_figure=True)
         show_dataframe(ranking_df.drop(columns="deputado_label"))
 
     with right:
@@ -330,7 +338,7 @@ with tab_rankings:
         "Valor liquido",
         "#b45309",
     )
-    st.pyplot(fig)
+    st.pyplot(fig, clear_figure=True)
     show_dataframe(state_df)
 
 with tab_suppliers:
@@ -343,10 +351,62 @@ with tab_suppliers:
         "Valor liquido",
         "#be123c",
     )
-    st.pyplot(fig)
+    st.pyplot(fig, clear_figure=True)
 
     st.subheader("Ranking de fornecedores")
     show_dataframe(supplier_df)
+    
+with tab_alerts:
+    st.subheader("Análise de Inconsistências e Padrões Atípicos")
+    st.caption("Esta seção utiliza técnicas de auditoria estatística e temporal para identificar anomalias nos gastos.")
+    left_col, right_col = st.columns(2)
+    
+    with left_col:
+        st.write("### Teste Lei de Benford")
+        st.info("A Lei de Benford prevê a frequência natural de primeiros dígitos em dados financeiros estruturados. Desvios acentuados podem indicar acúmulo artificial de notas com valores específicos.")
+        
+        benford_df = calculate_benford_law(filtered_df)
+        
+        if not benford_df.empty:
+            fig, ax = plt.subplots(figsize=(10, 5))
+            
+            
+            ax.bar(benford_df["Digito"] - 0.2, benford_df["Frequencia_Real"], width=0.4, label="Frequência Real", color="#0284c7")
+            ax.plot(benford_df["Digito"], benford_df["Frequencia_Teorica"], marker="o", color="#dc2626", linewidth=2, label="Lei de Benford (Esperado)")
+            
+            ax.set_xticks(range(1, 10))
+            style_axes(ax, "Distribuição do Primeiro Dígito vs. Lei de Benford", "Dígito Inicial", "% do Total de Registros")
+            ax.legend()
+            
+            st.pyplot(fig, clear_figure=True)
+        else:
+            st.warning("Dados insuficientes para calcular a Lei de Benford.")
+
+    with right_col:
+        st.write("### Emissões em Finais de Semana")
+        
+        weekend_data = calculate_weekend_expenses(filtered_df)
+        
+        c1, c2 = st.columns(2)
+        c1.metric("Gastos no Fim de Semana", format_short_currency(weekend_data["weekend_val"]))
+        c2.metric("Proporção do Total", f"{weekend_data["percentage_weekend"]:.2f}%")
+        
+        
+        if weekend_data["weekend_val"] > 0 or weekend_data["weekday_val"] > 0:
+            fig2, ax2 = plt.subplots(figsize=(8, 4.5))
+            labels = ['Dias Úteis', 'Fim de Semana']
+            valores = [weekend_data["weekday_val"], weekend_data["weekend_val"]]
+            
+            ax2.pie(valores, labels=labels, autopct='%1.1f%%', startangle=90, colors=["#475569", "#f97316"], wedgeprops={'edgecolor': 'w'})
+            ax2.set_title("Distribuição Financeira: Emissão Cronológica", fontsize=11, fontweight="bold")
+            
+            st.pyplot(fig2, clear_figure=True)
+            st.warning(
+            "⚠️ **Nota Metodológica (Faca de Dois Gumes):** Alta concentração de despesas emitidas no "
+            "sábado ou domingo pode apontar serviços executados fora do período de atividade parlamentar comum. "
+            "Contudo, bilhetes aéreos ou hospedagens compradas anteriormente podem ser faturados ou processados "
+            "automaticamente pelo sistema em dias não úteis, gerando falsos positivos. Recomenda-se auditar por categoria (ex: Alimentação e Combustíveis)."
+        )
 
 with tab_data:
     st.subheader("Base filtrada")
