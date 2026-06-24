@@ -10,16 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-from src.metrics import (
-    deputados_unique,
-    expense_partido,
-    expense_uf,
-    ranking_expense_deputado,
-    ranking_fornecedores,
-    total_expenses,
-    values_category,
-    values_data,
-)
+import src.metrics
 
 DATA_PATH = PROJECT_ROOT / "data" / "processed" / "despesas_ceap_2025.csv"
 PAGE_TITLE = "Observatorio da Cota Parlamentar"
@@ -153,12 +144,18 @@ def line_chart(df: pd.DataFrame):
     fig.tight_layout()
     return fig
 
-
 def show_dataframe(df: pd.DataFrame, value_column: str = "vlrLiquido") -> None:
-    display_df = df.copy()
-    if value_column in display_df.columns:
-        display_df[value_column] = display_df[value_column].apply(format_currency)
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            value_column: st.column_config.NumberColumn(
+                "Valor Líquido",
+                format="R$ %.2f"
+            )
+        }
+    )
 
 
 st.markdown(
@@ -243,8 +240,8 @@ if filtered_df.empty:
     st.warning("Nenhum registro encontrado para os filtros selecionados.")
     st.stop()
 
-expense_total = total_expenses(filtered_df)
-parliamentarians_total = deputados_unique(filtered_df)
+expense_total = src.metrics.total_expenses(filtered_df)
+parliamentarians_total = src.metrics.deputados_unique(filtered_df)
 documents_total = len(filtered_df)
 average_expense = filtered_df["vlrLiquido"].mean()
 
@@ -256,8 +253,8 @@ col4.metric("Media por registro", format_short_currency(average_expense))
 
 st.divider()
 
-tab_overview, tab_rankings, tab_suppliers, tab_data = st.tabs(
-    ["Visao geral", "Deputados e partidos", "Fornecedores", "Dados"]
+tab_overview, tab_rankings, tab_suppliers,tab_alerts, tab_data = st.tabs(
+    ["Visao geral", "Deputados e partidos", "Fornecedores","Alertas", "Dados"]
 )
 
 
@@ -265,11 +262,11 @@ with tab_overview:
     left, right = st.columns([1.2, 1])
 
     with left:
-        monthly_df = values_data(filtered_df)
+        monthly_df = src.metrics.values_data(filtered_df)
         st.pyplot(line_chart(monthly_df))
 
     with right:
-        category_df = values_category(filtered_df).head(top_n)
+        category_df = src.metrics.values_category(filtered_df).head(top_n)
         fig = horizontal_bar_chart(
             category_df,
             "txtDescricao",
@@ -278,7 +275,7 @@ with tab_overview:
             "Valor liquido",
             "#0f766e",
         )
-        st.pyplot(fig)
+        st.pyplot(fig, clear_figure=True)
 
     st.subheader("Gastos por categoria")
     show_dataframe(category_df)
@@ -287,7 +284,7 @@ with tab_rankings:
     left, right = st.columns(2)
 
     with left:
-        ranking_df = ranking_expense_deputado(filtered_df, limit=top_n)
+        ranking_df = src.metrics.ranking_expense_deputado(filtered_df, limit=top_n)
         ranking_df["deputado_label"] = (
             ranking_df["txNomeParlamentar"]
             + " ("
@@ -304,11 +301,11 @@ with tab_rankings:
             "Valor liquido",
             "#1d4ed8",
         )
-        st.pyplot(fig)
+        st.pyplot(fig, clear_figure=True)
         show_dataframe(ranking_df.drop(columns="deputado_label"))
 
     with right:
-        party_df = expense_partido(filtered_df).head(top_n)
+        party_df = src.metrics.expense_partido(filtered_df).head(top_n)
         fig = horizontal_bar_chart(
             party_df,
             "sgPartido",
@@ -321,7 +318,7 @@ with tab_rankings:
         show_dataframe(party_df)
 
     st.subheader("Gastos por unidade federativa")
-    state_df = expense_uf(filtered_df).head(top_n)
+    state_df = src.metrics.expense_uf(filtered_df).head(top_n)
     fig = horizontal_bar_chart(
         state_df,
         "sgUF",
@@ -330,11 +327,11 @@ with tab_rankings:
         "Valor liquido",
         "#b45309",
     )
-    st.pyplot(fig)
+    st.pyplot(fig, clear_figure=True)
     show_dataframe(state_df)
 
 with tab_suppliers:
-    supplier_df = ranking_fornecedores(filtered_df, limit=top_n)
+    supplier_df = src.metrics.ranking_fornecedores(filtered_df, limit=top_n)
     fig = horizontal_bar_chart(
         supplier_df,
         "txtFornecedor",
@@ -343,10 +340,285 @@ with tab_suppliers:
         "Valor liquido",
         "#be123c",
     )
-    st.pyplot(fig)
+    st.pyplot(fig, clear_figure=True)
 
     st.subheader("Ranking de fornecedores")
     show_dataframe(supplier_df)
+    st.divider()
+    
+    st.write("### Malha Fina de Fornecedores (Possíveis Redes de Laranjas)")
+    st.caption("Esta análise inverte a ótica: em vez de investigar o parlamentar, investiga o recebedor. Empresas com altos valores glosados por múltiplos deputados são fortes indicativos de escritórios de 'notas frias'.")
+    df_forn_glosa = src.metrics.fornecedores_glosados(filtered_df)
+    
+    if not df_forn_glosa.empty:
+        col_chart, col_table = st.columns([1, 1.4]) # Tabela maior porque os nomes dos deputados ocupam espaço
+        
+        with col_chart:
+            fig5, ax5 = plt.subplots(figsize=(8, 5))
+            
+            labels = df_forn_glosa["txtFornecedor"].apply(lambda x: (str(x)[:22] + '..') if len(str(x)) > 22 else str(x))
+            valores = df_forn_glosa["total_glosa"]
+            
+            bars = ax5.barh(labels, valores, color="#ea580c") # Laranja escuro
+            ax5.invert_yaxis()
+            
+            ax5.set_title("Fornecedores com Mais Glosas", fontsize=11, fontweight="bold", pad=12)
+            ax5.spines["top"].set_visible(False)
+            ax5.spines["right"].set_visible(False)
+            
+            for bar in bars:
+                width = bar.get_width()
+                ax5.text(
+                    width, 
+                    bar.get_y() + bar.get_height() / 2, 
+                    f" R$ {width:,.0f}".replace(",", "X").replace(".", ",").replace("X", "."), 
+                    ha='left', 
+                    va='center', 
+                    fontsize=9,
+                    fontweight='bold',
+                    color="#9a3412"
+                )
+                
+            fig5.tight_layout()
+            st.pyplot(fig5, clear_figure=True)
+            
+        with col_table:
+            st.write("**Quem tentou usar essa empresa?**")
+            st.dataframe(
+                df_forn_glosa,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "txtFornecedor": "Fornecedor",
+                    "total_glosa": st.column_config.NumberColumn("Total Bloqueado", format="R$ %.2f"),
+                    "qtd_tentativas": st.column_config.NumberColumn("Nº Notas", format="%d"),
+                    "deputados_envolvidos": "Parlamentares Envolvidos"
+                }
+            )
+    else:
+        st.success("Nenhum fornecedor apresentou retenção/glosa nos filtros atuais.")
+
+with tab_alerts:
+    st.subheader("Análise de Inconsistências e Padrões Atípicos")
+    st.caption("Esta seção utiliza técnicas de auditoria estatística e temporal para identificar anomalias nos gastos.")
+    
+    left_col, right_col = st.columns(2)
+    
+    with left_col:
+        st.write("###  Teste da Lei de Benford")
+        st.info("A Lei de Benford prevê a frequência natural de primeiros dígitos. Desvios indicam acúmulo artificial de notas.")
+        
+        benford_df = src.metrics.calculate_benford_law(filtered_df)
+        
+        if not benford_df.empty:
+            fig, ax = plt.subplots(figsize=(10, 5))
+            ax.bar(benford_df["Digito"] - 0.2, benford_df["Frequencia_Real"], width=0.4, label="Frequência Real", color="#0284c7")
+            ax.plot(benford_df["Digito"], benford_df["Frequencia_Teorica"], marker="o", color="#dc2626", linewidth=2, label="Lei de Benford (Esperado)")
+            
+            ax.set_xticks(range(1, 10))
+            style_axes(ax, "Distribuição do 1º Dígito vs. Benford", "Dígito Inicial", "% do Total")
+            ax.legend()
+            
+            st.pyplot(fig, clear_figure=True)
+        else:
+            st.warning("Dados insuficientes para calcular a Lei de Benford.")
+
+    with right_col:
+        st.write("###  Emissões em Finais de Semana")
+        
+        weekend_data = src.metrics.calculate_weekend_expenses(filtered_df)
+        
+        c1, c2 = st.columns(2)
+        c1.metric("Gastos no Fim de Semana", format_short_currency(weekend_data["weekend_val"]))
+        c2.metric("Proporção do Total", f"{weekend_data['percentage_weekend']:.2f}%")
+        
+        if weekend_data["weekend_val"] > 0 or weekend_data["weekday_val"] > 0:
+            fig2, ax2 = plt.subplots(figsize=(8, 4))
+            labels = ['Dias Úteis', 'Fim de Semana']
+            valores = [weekend_data["weekday_val"], weekend_data["weekend_val"]]
+            
+            bars = ax2.bar(labels, valores, color=["#475569", "#f97316"], width=0.5)
+            
+            ax2.set_title("Comparativo: Dias Úteis vs Finais de Semana", fontsize=11, fontweight="bold", pad=15)
+            
+            ax2.spines["top"].set_visible(False)
+            ax2.spines["right"].set_visible(False)
+            ax2.spines["left"].set_visible(False)
+            ax2.get_yaxis().set_visible(False)
+            
+            ax2.set_ylim(0, max(valores) * 1.3)
+            
+            total = sum(valores)
+            for bar in bars:
+                altura = bar.get_height()
+                percentual = (altura / total) * 100
+                texto_label = f"{percentual:.1f}%\n({format_short_currency(altura)})"
+                
+                ax2.text(
+                    bar.get_x() + bar.get_width() / 2, 
+                    altura + (max(valores) * 0.05), 
+                    texto_label, 
+                    ha='center', 
+                    va='bottom', 
+                    fontsize=10,
+                    fontweight='bold',
+                    color="#334155"
+                )
+            st.pyplot(fig2, clear_figure=True)
+
+    
+    st.divider() 
+    
+    st.write("### Anomalia Logística: O Padrão do 'Tanque Infinito'")
+    st.info("Veículos de passeio possuem tanques com capacidade média de 45 a 60 litros. Notas de combustível que ultrapassam esse volume em um único recibo sugerem o abastecimento de múltiplos veículos ou frotas de terceiros.")
+    
+    df_fuel_anomalies = src.metrics.tanque_infinito(filtered_df)
+    
+    if not df_fuel_anomalies.empty:
+        
+        col_scatter, col_table = st.columns([1.8, 1])
+        
+        with col_scatter:
+            import matplotlib.dates as mdates
+            
+            plot_data = df_fuel_anomalies.copy()
+            
+            plot_data['datEmissao'] = pd.to_datetime(plot_data['datEmissao'], errors='coerce')
+            plot_data = plot_data.dropna(subset=['datEmissao'])
+            
+            fig3, ax3 = plt.subplots(figsize=(10, 4.5))
+            
+            
+            ax3.scatter(plot_data['datEmissao'], plot_data['litros_estimados'], color="#dc2626", alpha=0.6, edgecolors="black", s=70)
+            
+            ax3.axhline(y=60, color='black', linestyle='--', linewidth=2, label="Limite Físico (60 Litros)")
+            
+            ax3.set_title("Abastecimentos Suspeitos (Acima de 60 Litros)", fontsize=12, fontweight="bold", pad=12)
+            ax3.set_ylabel("Volume Estimado (Litros)", fontsize=10)
+            ax3.legend()
+            ax3.grid(True, linestyle="--", alpha=0.3)
+            ax3.spines["top"].set_visible(False)
+            ax3.spines["right"].set_visible(False)
+            
+            ax3.xaxis.set_major_formatter(mdates.DateFormatter('%d/%m/%Y'))
+            plt.xticks(rotation=45)
+            fig3.tight_layout()
+            
+            st.pyplot(fig3, clear_figure=True)
+            
+        with col_table:
+            st.write("**O Efeito 'Teto da Cota' (Recibos no Limite)**")
+            st.caption(
+                "🚨 **Alerta de Comportamento:** O valor de R$ 9.392,00 é o limite máximo mensal de combustível. "
+                "Concentrar esse volume em uma única nota fiscal indica abastecimento de frotas ou fechamento de "
+                "conta corporativa (mensalista), dificultando a auditoria de qual veículo foi realmente abastecido dia a dia."
+            )
+            
+      
+            display_anomalies = plot_data[
+                ['txNomeParlamentar', 'sgUF', 'datEmissao', 'litros_estimados', 'vlrLiquido']
+            ].sort_values('vlrLiquido', ascending=False).head(10)
+            
+            st.dataframe(
+                display_anomalies,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "txNomeParlamentar": "Parlamentar",
+                    "sgUF": "UF",
+                    "datEmissao": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
+                    "litros_estimados": st.column_config.NumberColumn("Vol.", format="%.1f L"),
+                    "vlrLiquido": st.column_config.NumberColumn("Valor", format="R$ %.2f")
+                }
+            )
+    else:
+        st.success("Nenhuma anomalia de abastecimento encontrada com os filtros atuais ou na categoria de combustíveis.")
+        
+        st.divider()
+    
+    col_glosa, col_exterior = st.columns(2)
+    
+    with col_glosa:
+        st.write("### 🛑 Top Rejeições (Glosas)")
+        st.info("A **Glosa** ocorre quando a auditoria da Câmara nega o reembolso. Parlamentares no topo desta lista apresentam alto volume de tentativas de gastos irregulares.")
+        
+        df_glosa = src.metrics.ranking_glosa(filtered_df)
+        if not df_glosa.empty:
+            st.dataframe(
+                df_glosa,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "txNomeParlamentar": "Parlamentar",
+                    "sgPartido": "Partido",
+                    "sgUF": None, 
+                    "qtd_tentativas": st.column_config.NumberColumn("Nº Bloqueios", format="%d"),
+                    "total_barrado": st.column_config.NumberColumn("Valor Barrado", format="R$ %.2f")
+                }
+            )
+        else:
+            st.success("Nenhum registro de glosa encontrado para estes filtros.")
+
+    with col_exterior:
+        st.write("### ✈️ Gastos no Exterior")
+        st.info("Despesas efetivamente pagos e ressarcidos por uso fora do território nacional (identificadas pelo Tipo de Documento 2 no sistema da CEAP).")
+        
+        df_ext = src.metrics.gastos_exterior(filtered_df)
+        if not df_ext.empty:
+            st.dataframe(
+                df_ext,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "txNomeParlamentar": "Parlamentar",
+                    "sgPartido": None, 
+                    "txtDescricao": "Categoria",
+                    "qtd_despesas": st.column_config.NumberColumn("Qtd.", format="%d"),
+                    "total_gasto": st.column_config.NumberColumn("Total Gasto", format="R$ %.2f")
+                }
+            )
+        else:
+            st.success("Nenhum gasto no exterior encontrado nos filtros atuais.")
+            
+    st.divider()    
+    st.write("### 🚨 Cruzamento de Risco: Tentativas de Irregularidade no Exterior")
+    st.caption("Esta análise expõe parlamentares que tiveram despesas realizadas fora do país bloqueadas/rejeitadas pela auditoria. É o nível mais alto de alerta no uso da CEAP.")
+    
+    df_cross = src.metrics.glosa_no_exterior(filtered_df)
+    
+    if not df_cross.empty:
+        df_cross["deputado_label"] = df_cross["txNomeParlamentar"] + " (" + df_cross["sgPartido"] + ")"
+        
+        fig4, ax4 = plt.subplots(figsize=(10, 4))
+        
+        bars = ax4.barh(df_cross["deputado_label"].astype(str), df_cross["total_barrado"], color="#9f1239")
+        
+        ax4.set_title("Valores Barrados em Despesas Internacionais", fontsize=12, fontweight="bold", pad=12)
+        ax4.set_xlabel("Valor Glosado (R$)", fontsize=10)
+        
+        ax4.spines["top"].set_visible(False)
+        ax4.spines["right"].set_visible(False)
+        ax4.grid(axis="x", linestyle="--", alpha=0.3)
+        ax4.invert_yaxis()
+        
+
+        for bar in bars:
+            width = bar.get_width()
+            ax4.text(
+                width, 
+                bar.get_y() + bar.get_height() / 2, 
+                f" R$ {width:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), 
+                ha='left', 
+                va='center', 
+                fontsize=9,
+                fontweight='bold',
+                color="#7f1d1d"
+            )
+            
+        fig4.tight_layout()
+        st.pyplot(fig4, clear_figure=True)
+    else:
+        st.success("Nenhuma tentativa de gasto irregular no exterior foi detectada neste período.")
 
 with tab_data:
     st.subheader("Base filtrada")
