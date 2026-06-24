@@ -10,18 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
-from src.metrics import (
-    deputados_unique,
-    expense_partido,
-    expense_uf,
-    ranking_expense_deputado,
-    ranking_fornecedores,
-    total_expenses,
-    values_category,
-    values_data,
-    calculate_weekend_expenses, 
-    calculate_benford_law
-)
+import src.metrics
 
 DATA_PATH = PROJECT_ROOT / "data" / "processed" / "despesas_ceap_2025.csv"
 PAGE_TITLE = "Observatorio da Cota Parlamentar"
@@ -251,8 +240,8 @@ if filtered_df.empty:
     st.warning("Nenhum registro encontrado para os filtros selecionados.")
     st.stop()
 
-expense_total = total_expenses(filtered_df)
-parliamentarians_total = deputados_unique(filtered_df)
+expense_total = src.metrics.total_expenses(filtered_df)
+parliamentarians_total = src.metrics.deputados_unique(filtered_df)
 documents_total = len(filtered_df)
 average_expense = filtered_df["vlrLiquido"].mean()
 
@@ -273,11 +262,11 @@ with tab_overview:
     left, right = st.columns([1.2, 1])
 
     with left:
-        monthly_df = values_data(filtered_df)
+        monthly_df = src.metrics.values_data(filtered_df)
         st.pyplot(line_chart(monthly_df))
 
     with right:
-        category_df = values_category(filtered_df).head(top_n)
+        category_df = src.metrics.values_category(filtered_df).head(top_n)
         fig = horizontal_bar_chart(
             category_df,
             "txtDescricao",
@@ -295,7 +284,7 @@ with tab_rankings:
     left, right = st.columns(2)
 
     with left:
-        ranking_df = ranking_expense_deputado(filtered_df, limit=top_n)
+        ranking_df = src.metrics.ranking_expense_deputado(filtered_df, limit=top_n)
         ranking_df["deputado_label"] = (
             ranking_df["txNomeParlamentar"]
             + " ("
@@ -316,7 +305,7 @@ with tab_rankings:
         show_dataframe(ranking_df.drop(columns="deputado_label"))
 
     with right:
-        party_df = expense_partido(filtered_df).head(top_n)
+        party_df = src.metrics.expense_partido(filtered_df).head(top_n)
         fig = horizontal_bar_chart(
             party_df,
             "sgPartido",
@@ -329,7 +318,7 @@ with tab_rankings:
         show_dataframe(party_df)
 
     st.subheader("Gastos por unidade federativa")
-    state_df = expense_uf(filtered_df).head(top_n)
+    state_df = src.metrics.expense_uf(filtered_df).head(top_n)
     fig = horizontal_bar_chart(
         state_df,
         "sgUF",
@@ -342,7 +331,7 @@ with tab_rankings:
     show_dataframe(state_df)
 
 with tab_suppliers:
-    supplier_df = ranking_fornecedores(filtered_df, limit=top_n)
+    supplier_df = src.metrics.ranking_fornecedores(filtered_df, limit=top_n)
     fig = horizontal_bar_chart(
         supplier_df,
         "txtFornecedor",
@@ -356,26 +345,26 @@ with tab_suppliers:
     st.subheader("Ranking de fornecedores")
     show_dataframe(supplier_df)
     
+
 with tab_alerts:
     st.subheader("Análise de Inconsistências e Padrões Atípicos")
     st.caption("Esta seção utiliza técnicas de auditoria estatística e temporal para identificar anomalias nos gastos.")
+    
     left_col, right_col = st.columns(2)
     
     with left_col:
-        st.write("### Teste Lei de Benford")
-        st.info("A Lei de Benford prevê a frequência natural de primeiros dígitos em dados financeiros estruturados. Desvios acentuados podem indicar acúmulo artificial de notas com valores específicos.")
+        st.write("###  Teste da Lei de Benford")
+        st.info("A Lei de Benford prevê a frequência natural de primeiros dígitos. Desvios indicam acúmulo artificial de notas.")
         
-        benford_df = calculate_benford_law(filtered_df)
+        benford_df = src.metrics.calculate_benford_law(filtered_df)
         
         if not benford_df.empty:
             fig, ax = plt.subplots(figsize=(10, 5))
-            
-            
             ax.bar(benford_df["Digito"] - 0.2, benford_df["Frequencia_Real"], width=0.4, label="Frequência Real", color="#0284c7")
             ax.plot(benford_df["Digito"], benford_df["Frequencia_Teorica"], marker="o", color="#dc2626", linewidth=2, label="Lei de Benford (Esperado)")
             
             ax.set_xticks(range(1, 10))
-            style_axes(ax, "Distribuição do Primeiro Dígito vs. Lei de Benford", "Dígito Inicial", "% do Total de Registros")
+            style_axes(ax, "Distribuição do 1º Dígito vs. Benford", "Dígito Inicial", "% do Total")
             ax.legend()
             
             st.pyplot(fig, clear_figure=True)
@@ -383,30 +372,115 @@ with tab_alerts:
             st.warning("Dados insuficientes para calcular a Lei de Benford.")
 
     with right_col:
-        st.write("### Emissões em Finais de Semana")
+        st.write("###  Emissões em Finais de Semana")
         
-        weekend_data = calculate_weekend_expenses(filtered_df)
+        weekend_data = src.metrics.calculate_weekend_expenses(filtered_df)
         
         c1, c2 = st.columns(2)
         c1.metric("Gastos no Fim de Semana", format_short_currency(weekend_data["weekend_val"]))
-        c2.metric("Proporção do Total", f"{weekend_data["percentage_weekend"]:.2f}%")
-        
+        c2.metric("Proporção do Total", f"{weekend_data['percentage_weekend']:.2f}%")
         
         if weekend_data["weekend_val"] > 0 or weekend_data["weekday_val"] > 0:
-            fig2, ax2 = plt.subplots(figsize=(8, 4.5))
+            fig2, ax2 = plt.subplots(figsize=(8, 4))
             labels = ['Dias Úteis', 'Fim de Semana']
             valores = [weekend_data["weekday_val"], weekend_data["weekend_val"]]
             
-            ax2.pie(valores, labels=labels, autopct='%1.1f%%', startangle=90, colors=["#475569", "#f97316"], wedgeprops={'edgecolor': 'w'})
-            ax2.set_title("Distribuição Financeira: Emissão Cronológica", fontsize=11, fontweight="bold")
+            bars = ax2.bar(labels, valores, color=["#475569", "#f97316"], width=0.5)
             
+            ax2.set_title("Comparativo: Dias Úteis vs Finais de Semana", fontsize=11, fontweight="bold", pad=15)
+            
+            ax2.spines["top"].set_visible(False)
+            ax2.spines["right"].set_visible(False)
+            ax2.spines["left"].set_visible(False)
+            ax2.get_yaxis().set_visible(False)
+            
+            ax2.set_ylim(0, max(valores) * 1.3)
+            
+            total = sum(valores)
+            for bar in bars:
+                altura = bar.get_height()
+                percentual = (altura / total) * 100
+                texto_label = f"{percentual:.1f}%\n({format_short_currency(altura)})"
+                
+                ax2.text(
+                    bar.get_x() + bar.get_width() / 2, 
+                    altura + (max(valores) * 0.05), 
+                    texto_label, 
+                    ha='center', 
+                    va='bottom', 
+                    fontsize=10,
+                    fontweight='bold',
+                    color="#334155"
+                )
             st.pyplot(fig2, clear_figure=True)
-            st.warning(
-            "⚠️ **Nota Metodológica (Faca de Dois Gumes):** Alta concentração de despesas emitidas no "
-            "sábado ou domingo pode apontar serviços executados fora do período de atividade parlamentar comum. "
-            "Contudo, bilhetes aéreos ou hospedagens compradas anteriormente podem ser faturados ou processados "
-            "automaticamente pelo sistema em dias não úteis, gerando falsos positivos. Recomenda-se auditar por categoria (ex: Alimentação e Combustíveis)."
-        )
+
+    
+    st.divider() 
+    
+    st.write("### Anomalia Logística: O Padrão do 'Tanque Infinito'")
+    st.info("Veículos de passeio possuem tanques com capacidade média de 45 a 60 litros. Notas de combustível que ultrapassam esse volume em um único recibo sugerem o abastecimento de múltiplos veículos ou frotas de terceiros.")
+    
+    df_fuel_anomalies = src.metrics.tanque_infinito(filtered_df)
+    
+    if not df_fuel_anomalies.empty:
+        
+        col_scatter, col_table = st.columns([1.8, 1])
+        
+        with col_scatter:
+            import matplotlib.dates as mdates
+            
+            plot_data = df_fuel_anomalies.copy()
+            
+            plot_data['datEmissao'] = pd.to_datetime(plot_data['datEmissao'], errors='coerce')
+            plot_data = plot_data.dropna(subset=['datEmissao'])
+            
+            fig3, ax3 = plt.subplots(figsize=(10, 4.5))
+            
+            
+            ax3.scatter(plot_data['datEmissao'], plot_data['litros_estimados'], color="#dc2626", alpha=0.6, edgecolors="black", s=70)
+            
+            ax3.axhline(y=60, color='black', linestyle='--', linewidth=2, label="Limite Físico (60 Litros)")
+            
+            ax3.set_title("Abastecimentos Suspeitos (Acima de 60 Litros)", fontsize=12, fontweight="bold", pad=12)
+            ax3.set_ylabel("Volume Estimado (Litros)", fontsize=10)
+            ax3.legend()
+            ax3.grid(True, linestyle="--", alpha=0.3)
+            ax3.spines["top"].set_visible(False)
+            ax3.spines["right"].set_visible(False)
+            
+            ax3.xaxis.set_major_formatter(mdates.DateFormatter('%d/%m/%Y'))
+            plt.xticks(rotation=45)
+            fig3.tight_layout()
+            
+            st.pyplot(fig3, clear_figure=True)
+            
+        with col_table:
+            st.write("**O Efeito 'Teto da Cota' (Recibos no Limite)**")
+            st.caption(
+                "🚨 **Alerta de Comportamento:** O valor de R$ 9.392,00 é o limite máximo mensal de combustível. "
+                "Concentrar esse volume em uma única nota fiscal indica abastecimento de frotas ou fechamento de "
+                "conta corporativa (mensalista), dificultando a auditoria de qual veículo foi realmente abastecido dia a dia."
+            )
+            
+      
+            display_anomalies = plot_data[
+                ['txNomeParlamentar', 'sgUF', 'datEmissao', 'litros_estimados', 'vlrLiquido']
+            ].sort_values('vlrLiquido', ascending=False).head(10)
+            
+            st.dataframe(
+                display_anomalies,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "txNomeParlamentar": "Parlamentar",
+                    "sgUF": "UF",
+                    "datEmissao": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
+                    "litros_estimados": st.column_config.NumberColumn("Vol.", format="%.1f L"),
+                    "vlrLiquido": st.column_config.NumberColumn("Valor", format="R$ %.2f")
+                }
+            )
+    else:
+        st.success("Nenhuma anomalia de abastecimento encontrada com os filtros atuais ou na categoria de combustíveis.")
 
 with tab_data:
     st.subheader("Base filtrada")

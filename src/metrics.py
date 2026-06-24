@@ -113,6 +113,12 @@ def calculate_benford_law(df: pd.DataFrame) -> pd.DataFrame:
     return result_df
 
 
+def tanque_infinito(df: pd.DataFrame, avg_fuel_price: float = 6.3) -> pd.DataFrame:
+    df_fuel = df[df["txtDescricao"].str.contains("COMBUSTÍVEIS", case=False, na=False)].copy()
+    df_fuel["litros_estimados"] = df_fuel["vlrLiquido"] / avg_fuel_price
+    anomalies = df_fuel[df_fuel["litros_estimados"] > 60].sort_values("litros_estimados", ascending=False)
+    
+    return anomalies[["txNomeParlamentar", "sgPartido", "sgUF", "txtFornecedor", "datEmissao", "vlrLiquido", "litros_estimados"]]
 
 #script
 #python -c "import pandas as pd; from src.metrics import total_expenses, deputados_unique, values_category, ranking_expense_deputado, expense_partido, expense_uf, ranking_fornecedores, values_data; pd.set_option('display.float_format', 'R$ {:,.2f}'.format); df = pd.read_csv('data/processed/despesas_ceap_2025.csv'); print('Gasto total:'); print(total_expenses(df)); print('\nDeputados unicos:'); print(deputados_unique(df)); print('\nGastos por categoria:'); print(values_category(df).head(10)); print('\nRanking de deputados:'); print(ranking_expense_deputado(df)); print('\nGastos por partido:'); print(expense_partido(df).head(10)); print('\nGastos por UF:'); print(expense_uf(df).head(10)); print('\nRanking de fornecedores:'); print(ranking_fornecedores(df)); print('\nEvolucao mensal:'); print(values_data(df))" 
