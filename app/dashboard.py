@@ -344,7 +344,59 @@ with tab_suppliers:
 
     st.subheader("Ranking de fornecedores")
     show_dataframe(supplier_df)
+    st.divider()
     
+    st.write("### Malha Fina de Fornecedores (Possíveis Redes de Laranjas)")
+    st.caption("Esta análise inverte a ótica: em vez de investigar o parlamentar, investiga o recebedor. Empresas com altos valores glosados por múltiplos deputados são fortes indicativos de escritórios de 'notas frias'.")
+    df_forn_glosa = src.metrics.fornecedores_glosados(filtered_df)
+    
+    if not df_forn_glosa.empty:
+        col_chart, col_table = st.columns([1, 1.4]) # Tabela maior porque os nomes dos deputados ocupam espaço
+        
+        with col_chart:
+            fig5, ax5 = plt.subplots(figsize=(8, 5))
+            
+            labels = df_forn_glosa["txtFornecedor"].apply(lambda x: (str(x)[:22] + '..') if len(str(x)) > 22 else str(x))
+            valores = df_forn_glosa["total_glosa"]
+            
+            bars = ax5.barh(labels, valores, color="#ea580c") # Laranja escuro
+            ax5.invert_yaxis()
+            
+            ax5.set_title("Fornecedores com Mais Glosas", fontsize=11, fontweight="bold", pad=12)
+            ax5.spines["top"].set_visible(False)
+            ax5.spines["right"].set_visible(False)
+            
+            for bar in bars:
+                width = bar.get_width()
+                ax5.text(
+                    width, 
+                    bar.get_y() + bar.get_height() / 2, 
+                    f" R$ {width:,.0f}".replace(",", "X").replace(".", ",").replace("X", "."), 
+                    ha='left', 
+                    va='center', 
+                    fontsize=9,
+                    fontweight='bold',
+                    color="#9a3412"
+                )
+                
+            fig5.tight_layout()
+            st.pyplot(fig5, clear_figure=True)
+            
+        with col_table:
+            st.write("**Quem tentou usar essa empresa?**")
+            st.dataframe(
+                df_forn_glosa,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "txtFornecedor": "Fornecedor",
+                    "total_glosa": st.column_config.NumberColumn("Total Bloqueado", format="R$ %.2f"),
+                    "qtd_tentativas": st.column_config.NumberColumn("Nº Notas", format="%d"),
+                    "deputados_envolvidos": "Parlamentares Envolvidos"
+                }
+            )
+    else:
+        st.success("Nenhum fornecedor apresentou retenção/glosa nos filtros atuais.")
 
 with tab_alerts:
     st.subheader("Análise de Inconsistências e Padrões Atípicos")
@@ -481,6 +533,92 @@ with tab_alerts:
             )
     else:
         st.success("Nenhuma anomalia de abastecimento encontrada com os filtros atuais ou na categoria de combustíveis.")
+        
+        st.divider()
+    
+    col_glosa, col_exterior = st.columns(2)
+    
+    with col_glosa:
+        st.write("### 🛑 Top Rejeições (Glosas)")
+        st.info("A **Glosa** ocorre quando a auditoria da Câmara nega o reembolso. Parlamentares no topo desta lista apresentam alto volume de tentativas de gastos irregulares.")
+        
+        df_glosa = src.metrics.ranking_glosa(filtered_df)
+        if not df_glosa.empty:
+            st.dataframe(
+                df_glosa,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "txNomeParlamentar": "Parlamentar",
+                    "sgPartido": "Partido",
+                    "sgUF": None, 
+                    "qtd_tentativas": st.column_config.NumberColumn("Nº Bloqueios", format="%d"),
+                    "total_barrado": st.column_config.NumberColumn("Valor Barrado", format="R$ %.2f")
+                }
+            )
+        else:
+            st.success("Nenhum registro de glosa encontrado para estes filtros.")
+
+    with col_exterior:
+        st.write("### ✈️ Gastos no Exterior")
+        st.info("Despesas efetivamente pagos e ressarcidos por uso fora do território nacional (identificadas pelo Tipo de Documento 2 no sistema da CEAP).")
+        
+        df_ext = src.metrics.gastos_exterior(filtered_df)
+        if not df_ext.empty:
+            st.dataframe(
+                df_ext,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "txNomeParlamentar": "Parlamentar",
+                    "sgPartido": None, 
+                    "txtDescricao": "Categoria",
+                    "qtd_despesas": st.column_config.NumberColumn("Qtd.", format="%d"),
+                    "total_gasto": st.column_config.NumberColumn("Total Gasto", format="R$ %.2f")
+                }
+            )
+        else:
+            st.success("Nenhum gasto no exterior encontrado nos filtros atuais.")
+            
+    st.divider()    
+    st.write("### 🚨 Cruzamento de Risco: Tentativas de Irregularidade no Exterior")
+    st.caption("Esta análise expõe parlamentares que tiveram despesas realizadas fora do país bloqueadas/rejeitadas pela auditoria. É o nível mais alto de alerta no uso da CEAP.")
+    
+    df_cross = src.metrics.glosa_no_exterior(filtered_df)
+    
+    if not df_cross.empty:
+        df_cross["deputado_label"] = df_cross["txNomeParlamentar"] + " (" + df_cross["sgPartido"] + ")"
+        
+        fig4, ax4 = plt.subplots(figsize=(10, 4))
+        
+        bars = ax4.barh(df_cross["deputado_label"].astype(str), df_cross["total_barrado"], color="#9f1239")
+        
+        ax4.set_title("Valores Barrados em Despesas Internacionais", fontsize=12, fontweight="bold", pad=12)
+        ax4.set_xlabel("Valor Glosado (R$)", fontsize=10)
+        
+        ax4.spines["top"].set_visible(False)
+        ax4.spines["right"].set_visible(False)
+        ax4.grid(axis="x", linestyle="--", alpha=0.3)
+        ax4.invert_yaxis()
+        
+
+        for bar in bars:
+            width = bar.get_width()
+            ax4.text(
+                width, 
+                bar.get_y() + bar.get_height() / 2, 
+                f" R$ {width:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), 
+                ha='left', 
+                va='center', 
+                fontsize=9,
+                fontweight='bold',
+                color="#7f1d1d"
+            )
+            
+        fig4.tight_layout()
+        st.pyplot(fig4, clear_figure=True)
+    else:
+        st.success("Nenhuma tentativa de gasto irregular no exterior foi detectada neste período.")
 
 with tab_data:
     st.subheader("Base filtrada")

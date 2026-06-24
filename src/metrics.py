@@ -120,5 +120,94 @@ def tanque_infinito(df: pd.DataFrame, avg_fuel_price: float = 6.3) -> pd.DataFra
     
     return anomalies[["txNomeParlamentar", "sgPartido", "sgUF", "txtFornecedor", "datEmissao", "vlrLiquido", "litros_estimados"]]
 
+def ranking_glosa(df: pd.DataFrame, limit: int = 10) -> pd.DataFrame:
+    """
+    Identifica os parlamentares que mais tiveram despesas negadas (glosadas) pela auditoria da Câmara.
+    """
+    if "vlrGlosa" not in df.columns:
+        return pd.DataFrame()
+        
+    df_glosa = df.copy()
+    df_glosa["vlrGlosa"] = pd.to_numeric(df_glosa["vlrGlosa"], errors="coerce").fillna(0)
+
+    df_glosa = df_glosa[df_glosa["vlrGlosa"] > 0]
+    
+    if df_glosa.empty:
+        return pd.DataFrame()
+        
+    ranking = df_glosa.groupby(["txNomeParlamentar", "sgPartido", "sgUF"]).agg(
+        qtd_tentativas=('vlrGlosa', 'count'),
+        total_barrado=('vlrGlosa', 'sum')
+    ).reset_index()
+    
+    return ranking.sort_values("total_barrado", ascending=False).head(limit)
+
+def gastos_exterior(df: pd.DataFrame, limit: int = 10) -> pd.DataFrame:
+    """
+    Identifica os maiores gastos realizados no exterior (indTipoDocumento == 2).
+    """
+    if "indTipoDocumento" not in df.columns:
+        return pd.DataFrame()
+        
+    df_ext = df.copy()
+    df_ext["indTipoDocumento"] = pd.to_numeric(df_ext["indTipoDocumento"], errors="coerce").fillna(0)
+    
+    df_ext = df_ext[df_ext["indTipoDocumento"] == 2]
+    
+    if df_ext.empty:
+        return pd.DataFrame()
+        
+    ranking = df_ext.groupby(["txNomeParlamentar", "sgPartido", "txtDescricao"]).agg(
+        qtd_despesas=('vlrLiquido', 'count'),
+        total_gasto=('vlrLiquido', 'sum')
+    ).reset_index()
+    
+    return ranking.sort_values("total_gasto", ascending=False).head(limit)
+
+def glosa_no_exterior(df: pd.DataFrame, limit: int = 10) -> pd.DataFrame:
+    """
+    Identifica as despesas no exterior (indTipoDocumento == 2) que sofreram glosa (vlrGlosa > 0).
+    Cruzamento de alto rigor investigativo.
+    """
+    if "vlrGlosa" not in df.columns or "indTipoDocumento" not in df.columns:
+        return pd.DataFrame()
+        
+    df_cross = df.copy()
+    df_cross["vlrGlosa"] = pd.to_numeric(df_cross["vlrGlosa"], errors="coerce").fillna(0)
+    df_cross["indTipoDocumento"] = pd.to_numeric(df_cross["indTipoDocumento"], errors="coerce").fillna(0)
+    df_cross = df_cross[(df_cross["indTipoDocumento"] == 2) & (df_cross["vlrGlosa"] > 0)]
+    
+    if df_cross.empty:
+        return pd.DataFrame()
+        
+    ranking = df_cross.groupby(["txNomeParlamentar", "sgPartido", "txtDescricao"]).agg(
+        qtd_tentativas=('vlrGlosa', 'count'),
+        total_barrado=('vlrGlosa', 'sum')
+    ).reset_index()
+    
+    return ranking.sort_values("total_barrado", ascending=False).head(limit)
+
+
+def fornecedores_glosados(df: pd.DataFrame, limit: int = 10) -> pd.DataFrame:
+    """
+    Identifica fornecedores com maior volume financeiro rejeitado (glosado)
+    e lista os deputados que tentaram realizar os pagamentos (Possível rede de notas frias).
+    """
+    if "vlrGlosa" not in df.columns or "txtFornecedor" not in df.columns:
+        return pd.DataFrame()
+        
+    df_glosa = df.copy()
+    df_glosa["vlrGlosa"] = pd.to_numeric(df_glosa["vlrGlosa"], errors="coerce").fillna(0)
+    df_glosa = df_glosa[df_glosa["vlrGlosa"] > 0]
+    
+    if df_glosa.empty:
+        return pd.DataFrame()
+    ranking = df_glosa.groupby("txtFornecedor").agg(
+        total_glosa=('vlrGlosa', 'sum'),
+        qtd_tentativas=('vlrGlosa', 'count'),
+        deputados_envolvidos=('txNomeParlamentar', lambda x: ", ".join(x.unique()))
+    ).reset_index()
+    
+    return ranking.sort_values("total_glosa", ascending=False).head(limit)
 #script
 #python -c "import pandas as pd; from src.metrics import total_expenses, deputados_unique, values_category, ranking_expense_deputado, expense_partido, expense_uf, ranking_fornecedores, values_data; pd.set_option('display.float_format', 'R$ {:,.2f}'.format); df = pd.read_csv('data/processed/despesas_ceap_2025.csv'); print('Gasto total:'); print(total_expenses(df)); print('\nDeputados unicos:'); print(deputados_unique(df)); print('\nGastos por categoria:'); print(values_category(df).head(10)); print('\nRanking de deputados:'); print(ranking_expense_deputado(df)); print('\nGastos por partido:'); print(expense_partido(df).head(10)); print('\nGastos por UF:'); print(expense_uf(df).head(10)); print('\nRanking de fornecedores:'); print(ranking_fornecedores(df)); print('\nEvolucao mensal:'); print(values_data(df))" 
