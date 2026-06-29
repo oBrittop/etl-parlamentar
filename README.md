@@ -157,3 +157,6 @@ A implementacao busca atender aos seguintes criterios:
 - visualizacoes com Matplotlib;
 - codigo modular e organizado;
 - geracao de base para relatorio analitico final.
+
+
+by Gustavo Brito
