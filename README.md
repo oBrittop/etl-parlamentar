@@ -29,6 +29,7 @@ A CEAP e uma verba publica usada para custear despesas relacionadas ao exercicio
 - Requests
 - Matplotlib
 - Streamlit
+- pathlib
 
 ## Estrutura do Projeto
 
